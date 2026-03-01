@@ -11,9 +11,10 @@ class Config:
     # Groq API settings
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
-    
-    # Embedding model settings
-    EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
+
+    # Embedding settings (HuggingFace Inference API - no local model needed)
+    HUGGINGFACE_API_KEY: str = os.getenv("HUGGINGFACE_API_KEY", "")
+    EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
     
     # Document processing settings
     CHUNK_SIZE: int = 800       # Size of text chunks for vector storage

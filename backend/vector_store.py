@@ -1,6 +1,6 @@
 import chromadb
 from chromadb.config import Settings
-from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
+from chromadb.utils.embedding_functions import HuggingFaceEmbeddingFunction
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from models import Course, CourseChunk
@@ -34,7 +34,7 @@ class SearchResults:
 class VectorStore:
     """Vector storage using ChromaDB for course content and metadata"""
     
-    def __init__(self, chroma_path: str, embedding_model: str, max_results: int = 5):
+    def __init__(self, chroma_path: str, embedding_model: str, hf_api_key: str, max_results: int = 5):
         self.max_results = max_results
         # Initialize ChromaDB client
         self.client = chromadb.PersistentClient(
@@ -42,8 +42,11 @@ class VectorStore:
             settings=Settings(anonymized_telemetry=False)
         )
         
-        # Use ChromaDB's built-in ONNX embedding function (lighter than sentence-transformers)
-        self.embedding_function = DefaultEmbeddingFunction()
+        # Use HuggingFace Inference API - no local model loaded, low memory
+        self.embedding_function = HuggingFaceEmbeddingFunction(
+            api_key=hf_api_key,
+            model_name=embedding_model
+        )
         
         # Create collections for different types of data
         self.course_catalog = self._create_collection("course_catalog")  # Course titles/instructors
