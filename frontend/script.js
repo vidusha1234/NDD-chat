@@ -1,5 +1,7 @@
-// API base URL - set to your Render backend URL after deploying
-const API_URL = 'REPLACE_WITH_RENDER_URL/api';
+// Auto-detect: use relative URL locally, Render URL in production
+const API_URL = window.location.hostname === 'localhost'
+    ? '/api'
+    : 'https://ndd-chat-an3u.onrender.com/api';
 
 // Global state
 let currentSessionId = null;
