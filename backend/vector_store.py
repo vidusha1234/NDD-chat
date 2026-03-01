@@ -1,9 +1,27 @@
 import chromadb
+import requests
 from chromadb.config import Settings
-from chromadb.utils.embedding_functions import HuggingFaceEmbeddingFunction
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from models import Course, CourseChunk
+
+
+class HFEmbeddingFunction:
+    """HuggingFace Inference API embeddings with wait_for_model to handle cold starts."""
+
+    def __init__(self, api_key: str, model_name: str):
+        self.url = f"https://api-inference.huggingface.co/pipeline/feature-extraction/{model_name}"
+        self.headers = {"Authorization": f"Bearer {api_key}"}
+
+    def __call__(self, input: List[str]) -> List[List[float]]:
+        response = requests.post(
+            self.url,
+            headers=self.headers,
+            json={"inputs": input, "options": {"wait_for_model": True}},
+            timeout=60,
+        )
+        response.raise_for_status()
+        return response.json()
 
 @dataclass
 class SearchResults:
@@ -43,7 +61,7 @@ class VectorStore:
         )
         
         # Use HuggingFace Inference API - no local model loaded, low memory
-        self.embedding_function = HuggingFaceEmbeddingFunction(
+        self.embedding_function = HFEmbeddingFunction(
             api_key=hf_api_key,
             model_name=embedding_model
         )
