@@ -1,30 +1,9 @@
-import chromadb
-import requests
-from chromadb.config import Settings
+import re
+from rank_bm25 import BM25Okapi
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from models import Course, CourseChunk
 
-
-class HFEmbeddingFunction:
-    """HuggingFace Inference API embeddings with wait_for_model to handle cold starts."""
-
-    def __init__(self, api_key: str, model_name: str):
-        self.url = f"https://api-inference.huggingface.co/models/{model_name}"
-        self.headers = {"Authorization": f"Bearer {api_key}"}
-
-    def name(self) -> str:
-        return "hf_inference_api"
-
-    def __call__(self, input: List[str]) -> List[List[float]]:
-        response = requests.post(
-            self.url,
-            headers=self.headers,
-            json={"inputs": input, "options": {"wait_for_model": True}},
-            timeout=60,
-        )
-        response.raise_for_status()
-        return response.json()
 
 @dataclass
 class SearchResults:
@@ -33,265 +12,125 @@ class SearchResults:
     metadata: List[Dict[str, Any]]
     distances: List[float]
     error: Optional[str] = None
-    
-    @classmethod
-    def from_chroma(cls, chroma_results: Dict) -> 'SearchResults':
-        """Create SearchResults from ChromaDB query results"""
-        return cls(
-            documents=chroma_results['documents'][0] if chroma_results['documents'] else [],
-            metadata=chroma_results['metadatas'][0] if chroma_results['metadatas'] else [],
-            distances=chroma_results['distances'][0] if chroma_results['distances'] else []
-        )
-    
+
     @classmethod
     def empty(cls, error_msg: str) -> 'SearchResults':
-        """Create empty results with error message"""
         return cls(documents=[], metadata=[], distances=[], error=error_msg)
-    
+
     def is_empty(self) -> bool:
-        """Check if results are empty"""
         return len(self.documents) == 0
 
+
 class VectorStore:
-    """Vector storage using ChromaDB for course content and metadata"""
-    
+    """BM25 keyword search store for course content and metadata"""
+
     def __init__(self, chroma_path: str, embedding_model: str, hf_api_key: str, max_results: int = 5):
         self.max_results = max_results
-        # Use in-memory client — data is rebuilt from PDFs on every startup,
-        # so persistence is not needed and avoids embedding function conflicts.
-        self.client = chromadb.EphemeralClient(
-            settings=Settings(anonymized_telemetry=False)
-        )
-        
-        # Use HuggingFace Inference API - no local model loaded, low memory
-        self.embedding_function = HFEmbeddingFunction(
-            api_key=hf_api_key,
-            model_name=embedding_model
-        )
-        
-        # Create collections for different types of data
-        self.course_catalog = self._create_collection("course_catalog")  # Course titles/instructors
-        self.course_content = self._create_collection("course_content")  # Actual course material
-    
-    def _create_collection(self, name: str):
-        """Create or get a ChromaDB collection"""
-        return self.client.get_or_create_collection(
-            name=name,
-            embedding_function=self.embedding_function
-        )
-    
-    def search(self, 
-               query: str,
-               course_name: Optional[str] = None,
+        self._chunks: List[Dict] = []       # [{text, metadata}]
+        self._catalog: Dict[str, Dict] = {} # course_title -> metadata
+        self._bm25: Optional[BM25Okapi] = None
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _tokenize(self, text: str) -> List[str]:
+        return re.findall(r'\w+', text.lower())
+
+    def _rebuild_index(self):
+        if self._chunks:
+            corpus = [self._tokenize(c['text']) for c in self._chunks]
+            self._bm25 = BM25Okapi(corpus)
+
+    # ------------------------------------------------------------------
+    # Search
+    # ------------------------------------------------------------------
+
+    def search(self, query: str, course_name: Optional[str] = None,
                lesson_number: Optional[int] = None,
                limit: Optional[int] = None) -> SearchResults:
-        """
-        Main search interface that handles course resolution and content search.
-        
-        Args:
-            query: What to search for in course content
-            course_name: Optional course name/title to filter by
-            lesson_number: Optional lesson number to filter by
-            limit: Maximum results to return
-            
-        Returns:
-            SearchResults object with documents and metadata
-        """
-        # Step 1: Resolve course name if provided
-        course_title = None
-        if course_name:
-            course_title = self._resolve_course_name(course_name)
-            if not course_title:
-                return SearchResults.empty(f"No course found matching '{course_name}'")
-        
-        # Step 2: Build filter for content search
-        filter_dict = self._build_filter(course_title, lesson_number)
-        
-        # Step 3: Search course content
-        # Use provided limit or fall back to configured max_results
-        search_limit = limit if limit is not None else self.max_results
-        
-        try:
-            results = self.course_content.query(
-                query_texts=[query],
-                n_results=search_limit,
-                where=filter_dict
-            )
-            return SearchResults.from_chroma(results)
-        except Exception as e:
-            return SearchResults.empty(f"Search error: {str(e)}")
-    
-    def _resolve_course_name(self, course_name: str) -> Optional[str]:
-        """Use vector search to find best matching course by name"""
-        try:
-            results = self.course_catalog.query(
-                query_texts=[course_name],
-                n_results=1
-            )
-            
-            if results['documents'][0] and results['metadatas'][0]:
-                # Return the title (which is now the ID)
-                return results['metadatas'][0][0]['title']
-        except Exception as e:
-            print(f"Error resolving course name: {e}")
-        
-        return None
-    
-    def _build_filter(self, course_title: Optional[str], lesson_number: Optional[int]) -> Optional[Dict]:
-        """Build ChromaDB filter from search parameters"""
-        if not course_title and lesson_number is None:
-            return None
-            
-        # Handle different filter combinations
-        if course_title and lesson_number is not None:
-            return {"$and": [
-                {"course_title": course_title},
-                {"lesson_number": lesson_number}
-            ]}
-        
-        if course_title:
-            return {"course_title": course_title}
-            
-        return {"lesson_number": lesson_number}
-    
+        if not self._bm25 or not self._chunks:
+            return SearchResults.empty("No documents indexed yet")
+
+        n = limit if limit is not None else self.max_results
+        tokens = self._tokenize(query)
+        scores = self._bm25.get_scores(tokens)
+
+        top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
+
+        documents, metadatas, distances = [], [], []
+        for idx in top_indices:
+            if len(documents) >= n:
+                break
+            chunk = self._chunks[idx]
+            meta = chunk['metadata']
+            if course_name and meta.get('course_title') != course_name:
+                continue
+            if lesson_number is not None and meta.get('lesson_number') != lesson_number:
+                continue
+            documents.append(chunk['text'])
+            metadatas.append(meta)
+            distances.append(float(scores[idx]))
+
+        return SearchResults(documents=documents, metadata=metadatas, distances=distances)
+
+    # ------------------------------------------------------------------
+    # Ingestion
+    # ------------------------------------------------------------------
+
     def add_course_metadata(self, course: Course):
-        """Add course information to the catalog for semantic search"""
-        import json
-
-        course_text = course.title
-        
-        # Build lessons metadata and serialize as JSON string
-        lessons_metadata = []
-        for lesson in course.lessons:
-            lessons_metadata.append({
-                "lesson_number": lesson.lesson_number,
-                "lesson_title": lesson.title,
-                "lesson_link": lesson.lesson_link
-            })
-        
-        meta = {
-            "title": course.title,
-            "instructor": course.instructor,
-            "course_link": course.course_link,
-            "lessons_json": json.dumps(lessons_metadata),
-            "lesson_count": len(course.lessons)
+        self._catalog[course.title] = {
+            'title': course.title,
+            'instructor': course.instructor,
+            'course_link': course.course_link,
+            'lessons': [
+                {
+                    'lesson_number': l.lesson_number,
+                    'lesson_title': l.title,
+                    'lesson_link': l.lesson_link,
+                }
+                for l in course.lessons
+            ],
+            'lesson_count': len(course.lessons),
         }
-        # ChromaDB does not accept None values in metadata
-        meta = {k: v for k, v in meta.items() if v is not None}
 
-        self.course_catalog.add(
-            documents=[course_text],
-            metadatas=[meta],
-            ids=[course.title]
-        )
-    
     def add_course_content(self, chunks: List[CourseChunk]):
-        """Add course content chunks to the vector store"""
-        if not chunks:
-            return
-        
-        documents = [chunk.content for chunk in chunks]
-        metadatas = []
         for chunk in chunks:
-            meta = {
-                "course_title": chunk.course_title,
-                "chunk_index": chunk.chunk_index
+            meta: Dict[str, Any] = {
+                'course_title': chunk.course_title,
+                'chunk_index': chunk.chunk_index,
             }
             if chunk.lesson_number is not None:
-                meta["lesson_number"] = chunk.lesson_number
-            metadatas.append(meta)
-        # Use title with chunk index for unique IDs
-        ids = [f"{chunk.course_title.replace(' ', '_')}_{chunk.chunk_index}" for chunk in chunks]
-        
-        self.course_content.add(
-            documents=documents,
-            metadatas=metadatas,
-            ids=ids
-        )
-    
+                meta['lesson_number'] = chunk.lesson_number
+            self._chunks.append({'text': chunk.content, 'metadata': meta})
+        self._rebuild_index()
+
+    # ------------------------------------------------------------------
+    # Management
+    # ------------------------------------------------------------------
+
     def clear_all_data(self):
-        """Clear all data from both collections"""
-        try:
-            self.client.delete_collection("course_catalog")
-            self.client.delete_collection("course_content")
-            # Recreate collections
-            self.course_catalog = self._create_collection("course_catalog")
-            self.course_content = self._create_collection("course_content")
-        except Exception as e:
-            print(f"Error clearing data: {e}")
-    
+        self._chunks = []
+        self._catalog = {}
+        self._bm25 = None
+
     def get_existing_course_titles(self) -> List[str]:
-        """Get all existing course titles from the vector store"""
-        try:
-            # Get all documents from the catalog
-            results = self.course_catalog.get()
-            if results and 'ids' in results:
-                return results['ids']
-            return []
-        except Exception as e:
-            print(f"Error getting existing course titles: {e}")
-            return []
-    
+        return list(self._catalog.keys())
+
     def get_course_count(self) -> int:
-        """Get the total number of courses in the vector store"""
-        try:
-            results = self.course_catalog.get()
-            if results and 'ids' in results:
-                return len(results['ids'])
-            return 0
-        except Exception as e:
-            print(f"Error getting course count: {e}")
-            return 0
-    
+        return len(self._catalog)
+
     def get_all_courses_metadata(self) -> List[Dict[str, Any]]:
-        """Get metadata for all courses in the vector store"""
-        import json
-        try:
-            results = self.course_catalog.get()
-            if results and 'metadatas' in results:
-                # Parse lessons JSON for each course
-                parsed_metadata = []
-                for metadata in results['metadatas']:
-                    course_meta = metadata.copy()
-                    if 'lessons_json' in course_meta:
-                        course_meta['lessons'] = json.loads(course_meta['lessons_json'])
-                        del course_meta['lessons_json']  # Remove the JSON string version
-                    parsed_metadata.append(course_meta)
-                return parsed_metadata
-            return []
-        except Exception as e:
-            print(f"Error getting courses metadata: {e}")
-            return []
+        return list(self._catalog.values())
 
     def get_course_link(self, course_title: str) -> Optional[str]:
-        """Get course link for a given course title"""
-        try:
-            # Get course by ID (title is the ID)
-            results = self.course_catalog.get(ids=[course_title])
-            if results and 'metadatas' in results and results['metadatas']:
-                metadata = results['metadatas'][0]
-                return metadata.get('course_link')
-            return None
-        except Exception as e:
-            print(f"Error getting course link: {e}")
-            return None
-    
+        course = self._catalog.get(course_title)
+        return course.get('course_link') if course else None
+
     def get_lesson_link(self, course_title: str, lesson_number: int) -> Optional[str]:
-        """Get lesson link for a given course title and lesson number"""
-        import json
-        try:
-            # Get course by ID (title is the ID)
-            results = self.course_catalog.get(ids=[course_title])
-            if results and 'metadatas' in results and results['metadatas']:
-                metadata = results['metadatas'][0]
-                lessons_json = metadata.get('lessons_json')
-                if lessons_json:
-                    lessons = json.loads(lessons_json)
-                    # Find the lesson with matching number
-                    for lesson in lessons:
-                        if lesson.get('lesson_number') == lesson_number:
-                            return lesson.get('lesson_link')
-            return None
-        except Exception as e:
-            print(f"Error getting lesson link: {e}")
-    
+        course = self._catalog.get(course_title)
+        if course:
+            for lesson in course.get('lessons', []):
+                if lesson.get('lesson_number') == lesson_number:
+                    return lesson.get('lesson_link')
+        return None
