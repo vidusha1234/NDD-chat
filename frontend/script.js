@@ -1,5 +1,5 @@
-// API base URL - use relative path to work from any host
-const API_URL = '/api';
+// API base URL - set to your Render backend URL after deploying
+const API_URL = 'REPLACE_WITH_RENDER_URL/api';
 
 // Global state
 let currentSessionId = null;

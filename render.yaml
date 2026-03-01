@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: ndd-chat-backend
+    env: python
+    plan: free
+    buildCommand: pip install uv && uv sync --frozen
+    startCommand: cd backend && uv run uvicorn app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/courses
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.13.0
