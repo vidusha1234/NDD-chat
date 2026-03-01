@@ -10,7 +10,7 @@ class HFEmbeddingFunction:
     """HuggingFace Inference API embeddings with wait_for_model to handle cold starts."""
 
     def __init__(self, api_key: str, model_name: str):
-        self.url = f"https://api-inference.huggingface.co/pipeline/feature-extraction/{model_name}"
+        self.url = f"https://api-inference.huggingface.co/models/{model_name}"
         self.headers = {"Authorization": f"Bearer {api_key}"}
 
     def name(self) -> str:
