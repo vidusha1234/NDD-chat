@@ -57,9 +57,9 @@ class VectorStore:
     
     def __init__(self, chroma_path: str, embedding_model: str, hf_api_key: str, max_results: int = 5):
         self.max_results = max_results
-        # Initialize ChromaDB client
-        self.client = chromadb.PersistentClient(
-            path=chroma_path,
+        # Use in-memory client — data is rebuilt from PDFs on every startup,
+        # so persistence is not needed and avoids embedding function conflicts.
+        self.client = chromadb.EphemeralClient(
             settings=Settings(anonymized_telemetry=False)
         )
         
