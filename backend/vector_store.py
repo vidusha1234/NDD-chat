@@ -13,6 +13,9 @@ class HFEmbeddingFunction:
         self.url = f"https://api-inference.huggingface.co/pipeline/feature-extraction/{model_name}"
         self.headers = {"Authorization": f"Bearer {api_key}"}
 
+    def name(self) -> str:
+        return "hf_inference_api"
+
     def __call__(self, input: List[str]) -> List[List[float]]:
         response = requests.post(
             self.url,
