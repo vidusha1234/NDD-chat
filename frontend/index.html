@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>Neurodevelopmental Support Assistant</title>
+    <link rel="stylesheet" href="style.css?v=12">
+</head>
+<body>
+    <!-- Welcome / Landing Screen -->
+    <div id="welcomeScreen" class="welcome-screen">
+        <div class="welcome-card">
+            <img src="logo.png" alt="NDD Parent Support" class="welcome-logo"/>
+            <h1 class="welcome-title">NDD Parent Support</h1>
+            <p class="welcome-tagline">Empowering families, one conversation at a time.</p>
+            <p class="welcome-description">
+                A compassionate AI assistant designed to support parents of children with
+                neurodevelopmental delays. Get practical strategies, guidance on therapies,
+                and answers to your everyday parenting questions — all grounded in trusted resources.
+            </p>
+            <button id="getStartedBtn" class="get-started-btn">Let's Get Started</button>
+        </div>
+    </div>
+
+    <div class="container" id="appContainer" hidden>
+        <header>
+            <h1>Neurodevelopmental Support Assistant</h1>
+            <p class="subtitle">Guidance and support for parents of children with neurodevelopmental delays</p>
+        </header>
+
+        <div class="main-content">
+            <!-- Left Sidebar -->
+            <aside class="sidebar">
+                <!-- Logo -->
+                <div class="sidebar-section logo-area">
+                    <img src="logo.png" alt="NDD Parent Support" class="sidebar-logo"/>
+                </div>
+
+                <!-- New Chat Button -->
+                <div class="sidebar-section">
+                    <button id="newChatButton" class="new-chat-btn">+ New Chat</button>
+                </div>
+
+                <!-- Suggested Questions -->
+                <div class="sidebar-section">
+                    <details class="suggested-collapsible">
+                        <summary class="suggested-header">Try asking:</summary>
+                        <div class="suggested-items">
+                            <button class="suggested-item" data-question="What are some early signs of neurodevelopmental delays I should look out for?">Early signs to watch for</button>
+                            <button class="suggested-item" data-question="What therapies are recommended for children with speech and language delays?">Speech delay therapies</button>
+                            <button class="suggested-item" data-question="How can I support my child's social skills development at home?">Building social skills</button>
+                            <button class="suggested-item" data-question="What strategies help children with sensory processing difficulties?">Sensory strategies</button>
+                        </div>
+                    </details>
+                </div>
+            </aside>
+
+            <!-- Main Chat Area -->
+            <main class="chat-main">
+                <div class="chat-container">
+                    <div id="chatMessages" class="chat-messages"></div>
+                    <div class="chat-input-container">
+                        <input
+                            type="text"
+                            id="chatInput"
+                            placeholder="Ask about strategies, therapies, milestones, or support..."
+                            autocomplete="off"
+                        >
+                        <button id="sendButton">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <line x1="22" y1="2" x2="11" y2="13"></line>
+                                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="script.js?v=10"></script>
+</body>
+</html>
